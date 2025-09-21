@@ -1,7 +1,7 @@
 """
 Real-ESRGAN image processing functions
 """
-from .config import app, gpu_image, model_volume, temp_volume
+from .config import app, gpu_image, web_image, model_volume, temp_volume
 
 # Setup models function (runs once to populate volume)
 @app.function(
@@ -41,7 +41,7 @@ def setup_models():
     image=gpu_image,
     gpu="T4",  # Options: "T4" (14GB), "A10G" (24GB), "A100" (40GB)
     timeout=600,  # Increased timeout for batch processing
-    memory=8192,
+    memory=2048,  # Reduced from 8GB to 2GB (actual usage < 1GB)
     max_containers=10,  # Limit concurrent GPU instances
     volumes={"/models": model_volume, "/temp": temp_volume}
 )
@@ -183,7 +183,7 @@ def process_upscale(image_base64: str = None, image_url: str = None, scale: int 
         
         # Save with appropriate quality for JPEG
         if save_format == "JPEG":
-            result_image.save(temp_path, format=save_format, quality=95, optimize=True)
+            result_image.save(temp_path, format=save_format, quality=97, optimize=True)
         else:
             result_image.save(temp_path, format=save_format)
         
@@ -219,7 +219,8 @@ def process_upscale(image_base64: str = None, image_url: str = None, scale: int 
 
 # Download function with volume access
 @app.function(
-    image=gpu_image,
+    image=web_image,  # Use lightweight image instead of GPU image
+    memory=512,  # Minimal memory for file operations
     volumes={"/temp": temp_volume}
 )
 def get_file_content(file_id: str):
