@@ -45,7 +45,7 @@ def setup_models():
     max_containers=10,  # Limit concurrent GPU instances
     volumes={"/models": model_volume, "/temp": temp_volume}
 )
-def process_upscale(image_base64: str, scale: int):
+def process_upscale(image_base64: str, scale: int, output_ext: str = "png"):
     """Process image upscaling with Real-ESRGAN on GPU using persistent models"""
     import io
     import base64
@@ -135,12 +135,29 @@ def process_upscale(image_base64: str, scale: int):
         
         file_id = str(uuid.uuid4())
         timestamp = int(time.time())
-        filename = f"{file_id}_{timestamp}.png"
+        
+        # Determine file extension and format
+        if output_ext.lower() == "jpg":
+            file_ext = "jpg"
+            save_format = "JPEG"
+            # Convert RGBA to RGB for JPEG (no transparency support)
+            if result_image.mode == "RGBA":
+                result_image = result_image.convert("RGB")
+        else:
+            file_ext = "png"
+            save_format = "PNG"
+        
+        filename = f"{file_id}_{timestamp}.{file_ext}"
         temp_path = f"/temp/{filename}"
         
         # Thread-safe file saving
         os.makedirs("/temp", exist_ok=True)
-        result_image.save(temp_path, format='PNG')
+        
+        # Save with appropriate quality for JPEG
+        if save_format == "JPEG":
+            result_image.save(temp_path, format=save_format, quality=95, optimize=True)
+        else:
+            result_image.save(temp_path, format=save_format)
         
         # Use thread lock for volume commit to avoid conflicts
         with threading.Lock():
@@ -158,7 +175,8 @@ def process_upscale(image_base64: str, scale: int):
             "filename": filename,
             "original_size": original_size,
             "upscaled_size": upscaled_size,
-            "expires_at": expires_at.isoformat() + "Z"
+            "expires_at": expires_at.isoformat() + "Z",
+            "output_format": file_ext
         }
         
     except Exception as e:
@@ -175,9 +193,11 @@ def get_file_content(file_id: str):
     import glob
     
     try:
-        # Find file with this ID (includes timestamp in filename)
-        pattern = f"/temp/{file_id}_*.png"
-        matching_files = glob.glob(pattern)
+        # Find file with this ID (includes timestamp and extension in filename)
+        patterns = [f"/temp/{file_id}_*.png", f"/temp/{file_id}_*.jpg"]
+        matching_files = []
+        for pattern in patterns:
+            matching_files.extend(glob.glob(pattern))
         
         if not matching_files:
             return {"error": f"File not found or expired. Pattern: {pattern}"}
@@ -192,9 +212,13 @@ def get_file_content(file_id: str):
         with open(file_path, "rb") as f:
             file_content = f.read()
         
+        # Get original extension from found file
+        original_filename = os.path.basename(file_path)
+        file_ext = original_filename.split('.')[-1]
+        
         return {
             "content": file_content,
-            "filename": f"upscaled_{file_id}.png"
+            "filename": f"upscaled_{file_id}.{file_ext}"
         }
         
     except Exception as e:

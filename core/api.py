@@ -40,6 +40,7 @@ def fastapi_app():
     class UpscaleRequest(BaseModel):
         image: str  # base64 encoded image
         scale: int = 4  # upscale factor (2 or 4)
+        output_ext: str = "png"  # output format: "png" or "jpg"
 
     class UpscaleResponse(BaseModel):
         download_url: str  # URL to download result
@@ -47,6 +48,7 @@ def fastapi_app():
         original_size: List[int]
         upscaled_size: List[int]
         expires_at: str  # ISO timestamp when file expires
+        output_format: str  # actual output format used
     
     # Create FastAPI app with error handling
     web_app = FastAPI(
@@ -90,8 +92,17 @@ def fastapi_app():
             if not upscale_request.image:
                 raise HTTPException(status_code=400, detail="Image data is required")
             
+            # Validate and normalize output extension
+            output_ext = upscale_request.output_ext.lower().strip()
+            if output_ext not in ["png", "jpg", "jpeg"]:
+                output_ext = "png"  # fallback to PNG
+            
+            # Normalize jpeg to jpg
+            if output_ext == "jpeg":
+                output_ext = "jpg"
+            
             # Call the GPU function for processing
-            result = process_upscale.remote(upscale_request.image, upscale_request.scale)
+            result = process_upscale.remote(upscale_request.image, upscale_request.scale, output_ext)
             
             # Generate download URL using request headers
             base_url = f"{request.url.scheme}://{request.url.netloc}"
@@ -102,7 +113,8 @@ def fastapi_app():
                 file_id=result["file_id"],
                 original_size=result["original_size"],
                 upscaled_size=result["upscaled_size"],
-                expires_at=result["expires_at"]
+                expires_at=result["expires_at"],
+                output_format=result["output_format"]
             )
             
         except HTTPException:
@@ -120,10 +132,12 @@ def fastapi_app():
             if "error" in result:
                 raise HTTPException(status_code=404, detail=result["error"])
             
-            # Return file as response
+            # Return file as response with correct media type
+            media_type = "image/jpeg" if result["filename"].endswith(".jpg") else "image/png"
+            
             return Response(
                 content=result["content"],
-                media_type="image/png",
+                media_type=media_type,
                 headers={
                     "Content-Disposition": f"attachment; filename={result['filename']}"
                 }
@@ -139,7 +153,8 @@ def fastapi_app():
             "message": "Use POST method to upscale images",
             "required_fields": {
                 "image": "base64 encoded image string",
-                "scale": "2 or 4"
+                "scale": "2 or 4",
+                "output_ext": "png or jpg (optional, default: png)"
             },
             "response_format": {
                 "download_url": "URL to download result image",

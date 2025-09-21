@@ -19,8 +19,8 @@ def cleanup_expired_files():
     current_time = int(time.time())
     deleted_count = 0
     
-    # Find all PNG files in temp directory
-    temp_files = glob.glob("/temp/*.png")
+    # Find all image files in temp directory (PNG and JPG)
+    temp_files = glob.glob("/temp/*.png") + glob.glob("/temp/*.jpg")
     
     for file_path in temp_files:
         try:
