@@ -1,0 +1,10 @@
+modal
+fastapi
+uvicorn
+opencv-python-headless
+pillow
+numpy
+torch
+torchvision
+basicsr
+realesrgan

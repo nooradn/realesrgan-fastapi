@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Image Upscaler (Authenticated)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .container {
+            margin: 20px 0;
+        }
+
+        .auth-section {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        img {
+            max-width: 100%;
+            border: 1px solid #ddd;
+            margin: 10px 0;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+
+        button:disabled {
+            background: #ccc;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        select {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+
+        .loading {
+            color: #666;
+        }
+
+        .error {
+            color: #dc3545;
+        }
+
+        .success {
+            color: #28a745;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🔒 Image Upscaler</h1>
+
+    <div class="auth-section">
+        <h3>Authentication</h3>
+        <label>
+            API Endpoint:
+            <input type="text" id="apiUrl"
+                placeholder="https://your-username--image-upscaler-auth-fastapi-app.modal.run" style="width: 400px;">
+        </label>
+        <br>
+        <label>
+            Bearer Token:
+            <input type="password" id="bearerToken" placeholder="your-secret-token-here" style="width: 300px;">
+        </label>
+        <br>
+        <button onclick="testAuth()">Test Authentication</button>
+        <div id="authStatus"></div>
+    </div>
+
+    <div class="container">
+        <input type="file" id="imageInput" accept="image/*">
+        <br><br>
+        <label>
+            Scale:
+            <select id="scaleSelect">
+                <option value="2">2x</option>
+                <option value="4" selected>4x</option>
+            </select>
+        </label>
+        <br><br>
+        <button onclick="upscaleImage()">Upscale Image</button>
+    </div>
+
+    <div class="container">
+        <h3>Original Image:</h3>
+        <img id="originalImage" style="display: none;">
+
+        <h3>Upscaled Image:</h3>
+        <div id="loading" class="loading" style="display: none;">Processing... This may take 10-30 seconds</div>
+        <img id="upscaledImage" style="display: none;">
+        <div id="result"></div>
+    </div>
+
+    <script>
+        document.getElementById('imageInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    const img = document.getElementById('originalImage');
+                    img.src = e.target.result;
+                    img.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        async function testAuth() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            const token = document.getElementById('bearerToken').value;
+            const statusDiv = document.getElementById('authStatus');
+
+            if (!apiUrl || !token) {
+                statusDiv.innerHTML = '<p class="error">Please enter both API URL and Bearer Token</p>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${apiUrl}/health`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    statusDiv.innerHTML = '<p class="success">✅ Authentication successful!</p>';
+                } else if (response.status === 401) {
+                    statusDiv.innerHTML = '<p class="error">❌ Invalid token</p>';
+                } else {
+                    statusDiv.innerHTML = '<p class="error">❌ Connection failed</p>';
+                }
+            } catch (error) {
+                statusDiv.innerHTML = '<p class="error">❌ Network error: ' + error.message + '</p>';
+            }
+        }
+
+        async function upscaleImage() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            const token = document.getElementById('bearerToken').value;
+            const fileInput = document.getElementById('imageInput');
+            const scaleSelect = document.getElementById('scaleSelect');
+            const loading = document.getElementById('loading');
+            const resultDiv = document.getElementById('result');
+            const upscaledImg = document.getElementById('upscaledImage');
+
+            if (!apiUrl || !token) {
+                alert('Please enter API URL and Bearer Token first');
+                return;
+            }
+
+            if (!fileInput.files[0]) {
+                alert('Please select an image first');
+                return;
+            }
+
+            // Show loading
+            loading.style.display = 'block';
+            upscaledImg.style.display = 'none';
+            resultDiv.innerHTML = '';
+
+            try {
+                // Convert image to base64
+                const file = fileInput.files[0];
+                const base64 = await fileToBase64(file);
+
+                // Remove data URL prefix
+                const base64Data = base64.split(',')[1];
+
+                // Send request with Bearer token
+                const response = await fetch(`${apiUrl}/upscale`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        image: base64Data,
+                        scale: parseInt(scaleSelect.value)
+                    })
+                });
+
+                if (response.status === 401) {
+                    throw new Error('Authentication failed - Invalid token');
+                }
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Request failed');
+                }
+
+                // Display result
+                upscaledImg.src = `data:image/png;base64,${result.upscaled_image}`;
+                upscaledImg.style.display = 'block';
+
+                resultDiv.innerHTML = `
+                    <p><strong>Original Size:</strong> ${result.original_size[0]} x ${result.original_size[1]}</p>
+                    <p><strong>Upscaled Size:</strong> ${result.upscaled_size[0]} x ${result.upscaled_size[1]}</p>
+                    <a href="data:image/png;base64,${result.upscaled_image}" download="upscaled_image.png">
+                        <button>Download Upscaled Image</button>
+                    </a>
+                `;
+
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+            });
+        }
+    </script>
+</body>
+
+</html>
