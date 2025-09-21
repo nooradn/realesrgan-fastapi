@@ -180,15 +180,20 @@ def process_upscale(image_base64: str, scale: int):
         import uuid
         import time
         from datetime import datetime, timedelta
+        import threading
         
         file_id = str(uuid.uuid4())
         timestamp = int(time.time())
         filename = f"{file_id}_{timestamp}.png"
         temp_path = f"/temp/{filename}"
         
-        # Save image to temporary volume
+        # Thread-safe file saving
+        os.makedirs("/temp", exist_ok=True)
         result_image.save(temp_path, format='PNG')
-        temp_volume.commit()
+        
+        # Use thread lock for volume commit to avoid conflicts
+        with threading.Lock():
+            temp_volume.commit()
         
         # Calculate expiry time (1 hour from now)
         expires_at = datetime.utcnow() + timedelta(hours=1)
