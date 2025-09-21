@@ -42,7 +42,7 @@ def setup_models():
     gpu="T4",  # Options: "T4" (14GB), "A10G" (24GB), "A100" (40GB)
     timeout=600,  # Increased timeout for batch processing
     memory=8192,
-    concurrency_limit=10,  # Limit concurrent GPU instances
+    max_containers=10,  # Limit concurrent GPU instances
     volumes={"/models": model_volume, "/temp": temp_volume}
 )
 def process_upscale(image_base64: str, scale: int):

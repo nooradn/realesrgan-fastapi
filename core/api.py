@@ -2,8 +2,6 @@
 FastAPI application and endpoints
 """
 from .config import app, web_image
-from .models import UpscaleRequest, UpscaleResponse
-from .auth import verify_token
 from .upscaler import process_upscale, get_file_content
 
 # FastAPI web service (lightweight, no GPU)
@@ -16,6 +14,38 @@ def fastapi_app():
     import os
     from fastapi import FastAPI, HTTPException, Request, Depends, status
     from fastapi.responses import JSONResponse, Response
+    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+    from pydantic import BaseModel
+    from typing import List
+    
+    # Authentication (defined inside function to avoid import issues)
+    security = HTTPBearer()
+    
+    def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+        """Verify Bearer token against valid tokens from environment"""
+        # Get valid tokens from environment (set in Modal secrets)
+        VALID_TOKENS = os.getenv("VALID_TOKENS", "your-secret-token-here,another-token").split(",")
+        
+        token = credentials.credentials
+        if token not in VALID_TOKENS:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return token
+    
+    # Request/Response models (defined inside function to avoid import issues)
+    class UpscaleRequest(BaseModel):
+        image: str  # base64 encoded image
+        scale: int = 4  # upscale factor (2 or 4)
+
+    class UpscaleResponse(BaseModel):
+        download_url: str  # URL to download result
+        file_id: str  # Unique file identifier
+        original_size: List[int]
+        upscaled_size: List[int]
+        expires_at: str  # ISO timestamp when file expires
     
     # Create FastAPI app with error handling
     web_app = FastAPI(

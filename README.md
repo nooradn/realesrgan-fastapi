@@ -151,10 +151,8 @@ realesrgan-fastapi/
 ├── main.py                    # 🎯 Entry point
 ├── core/                      # 🔧 Core components
 │   ├── config.py             # ⚙️ Modal setup & configuration
-│   ├── models.py             # 📝 Pydantic models
-│   ├── auth.py               # 🔐 Authentication logic
 │   ├── upscaler.py           # 🤖 Real-ESRGAN processing
-│   └── api.py                # 🌐 FastAPI endpoints
+│   └── api.py                # 🌐 FastAPI app (endpoints, models, auth)
 ├── utils/                     # 🛠️ Utilities
 │   └── cleanup.py            # 🗑️ Auto cleanup functions
 ├── scripts/                   # 📜 Setup & testing scripts
