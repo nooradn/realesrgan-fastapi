@@ -38,7 +38,8 @@ def fastapi_app():
     
     # Request/Response models (defined inside function to avoid import issues)
     class UpscaleRequest(BaseModel):
-        image: str  # base64 encoded image
+        image: str = None  # base64 encoded image (optional)
+        image_url: str = None  # public image URL (optional)
         scale: int = 4  # upscale factor (2 or 4)
         output_ext: str = "png"  # output format: "png" or "jpg"
 
@@ -88,9 +89,12 @@ def fastapi_app():
             if upscale_request.scale not in [2, 4]:
                 raise HTTPException(status_code=400, detail="Scale must be 2 or 4")
             
-            # Validate base64 image
-            if not upscale_request.image:
-                raise HTTPException(status_code=400, detail="Image data is required")
+            # Validate input method (either image or image_url, but not both)
+            if upscale_request.image and upscale_request.image_url:
+                raise HTTPException(status_code=400, detail="Provide either 'image' (base64) or 'image_url', not both")
+            
+            if not upscale_request.image and not upscale_request.image_url:
+                raise HTTPException(status_code=400, detail="Either 'image' (base64) or 'image_url' is required")
             
             # Validate and normalize output extension
             output_ext = upscale_request.output_ext.lower().strip()
@@ -102,7 +106,7 @@ def fastapi_app():
                 output_ext = "jpg"
             
             # Call the GPU function for processing
-            result = process_upscale.remote(upscale_request.image, upscale_request.scale, output_ext)
+            result = process_upscale.remote(upscale_request.image, upscale_request.image_url, upscale_request.scale, output_ext)
             
             # Generate download URL using request headers
             base_url = f"{request.url.scheme}://{request.url.netloc}"
@@ -126,14 +130,25 @@ def fastapi_app():
     async def download_file(file_id: str):
         """Download upscaled image file"""
         try:
+            print(f"🔍 Download request for file_id: {file_id}")
+            
             # Call the function that has volume access
             result = get_file_content.remote(file_id)
             
+            print(f"🔍 get_file_content result: {type(result)}")
+            
             if "error" in result:
+                print(f"❌ Error from get_file_content: {result['error']}")
                 raise HTTPException(status_code=404, detail=result["error"])
+            
+            if "content" not in result:
+                print(f"❌ No content in result: {result}")
+                raise HTTPException(status_code=500, detail="File content not found in result")
             
             # Return file as response with correct media type
             media_type = "image/jpeg" if result["filename"].endswith(".jpg") else "image/png"
+            
+            print(f"✅ Returning file: {result['filename']}, size: {len(result['content'])} bytes")
             
             return Response(
                 content=result["content"],
@@ -143,7 +158,10 @@ def fastapi_app():
                 }
             )
             
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
         except Exception as e:
+            print(f"❌ Unexpected error in download_file: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error downloading file: {str(e)}")
     
     @web_app.get("/upscale")
@@ -152,7 +170,8 @@ def fastapi_app():
             "error": "Method not allowed",
             "message": "Use POST method to upscale images",
             "required_fields": {
-                "image": "base64 encoded image string",
+                "image": "base64 encoded image string (either this or image_url)",
+                "image_url": "public image URL (either this or image)",
                 "scale": "2 or 4",
                 "output_ext": "png or jpg (optional, default: png)"
             },

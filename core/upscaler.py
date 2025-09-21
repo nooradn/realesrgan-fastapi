@@ -45,7 +45,7 @@ def setup_models():
     max_containers=10,  # Limit concurrent GPU instances
     volumes={"/models": model_volume, "/temp": temp_volume}
 )
-def process_upscale(image_base64: str, scale: int, output_ext: str = "png"):
+def process_upscale(image_base64: str = None, image_url: str = None, scale: int = 2, output_ext: str = "png"):
     """Process image upscaling with Real-ESRGAN on GPU using persistent models"""
     import io
     import base64
@@ -62,9 +62,37 @@ def process_upscale(image_base64: str, scale: int, output_ext: str = "png"):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
-        # Decode base64 image
-        image_data = base64.b64decode(image_base64)
-        image = Image.open(io.BytesIO(image_data))
+        # Load image from either base64 or URL
+        if image_url:
+            # Download image from URL
+            import urllib.request
+            import urllib.error
+            
+            try:
+                # Add user agent to avoid blocking
+                req = urllib.request.Request(
+                    image_url,
+                    headers={'User-Agent': 'Mozilla/5.0 (compatible; Real-ESRGAN-Upscaler/1.0)'}
+                )
+                
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    image_data = response.read()
+                    
+                image = Image.open(io.BytesIO(image_data))
+                
+            except urllib.error.URLError as e:
+                raise Exception(f"Failed to download image from URL: {str(e)}")
+            except Exception as e:
+                raise Exception(f"Error processing image from URL: {str(e)}")
+                
+        else:
+            # Decode base64 image
+            try:
+                image_data = base64.b64decode(image_base64)
+                image = Image.open(io.BytesIO(image_data))
+            except Exception as e:
+                raise Exception(f"Error decoding base64 image: {str(e)}")
+        
         original_size = list(image.size)
         
         # Check image size and resize if too large
@@ -155,13 +183,20 @@ def process_upscale(image_base64: str, scale: int, output_ext: str = "png"):
         
         # Save with appropriate quality for JPEG
         if save_format == "JPEG":
-            result_image.save(temp_path, format=save_format, quality=97, optimize=True)
+            result_image.save(temp_path, format=save_format, quality=95, optimize=True)
         else:
             result_image.save(temp_path, format=save_format)
         
-        # Use thread lock for volume commit to avoid conflicts
-        with threading.Lock():
-            temp_volume.commit()
+        # Verify file was saved locally
+        if not os.path.exists(temp_path):
+            raise Exception(f"Failed to save file to {temp_path}")
+        
+        file_size = os.path.getsize(temp_path)
+        print(f"✅ File saved locally: {temp_path}, size: {file_size} bytes")
+        
+        # Commit to volume (this makes it available to other functions)
+        temp_volume.commit()
+        print(f"✅ Volume committed for file: {filename}")
         
         # Calculate expiry time (1 hour from now)
         expires_at = datetime.utcnow() + timedelta(hours=1)
@@ -193,14 +228,26 @@ def get_file_content(file_id: str):
     import glob
     
     try:
+        # Reload volume to ensure we see latest files
+        temp_volume.reload()
+        print(f"🔄 Volume reloaded for file_id: {file_id}")
+        
+        # List all files in temp directory for debugging
+        all_temp_files = glob.glob("/temp/*")
+        print(f"🔍 All files in /temp: {all_temp_files}")
+        
         # Find file with this ID (includes timestamp and extension in filename)
         patterns = [f"/temp/{file_id}_*.png", f"/temp/{file_id}_*.jpg"]
         matching_files = []
         for pattern in patterns:
-            matching_files.extend(glob.glob(pattern))
+            files = glob.glob(pattern)
+            matching_files.extend(files)
+            print(f"🔍 Pattern {pattern} found {len(files)} files: {files}")
+        
+        print(f"🔍 Total matching files for {file_id}: {matching_files}")
         
         if not matching_files:
-            return {"error": f"File not found or expired. Pattern: {pattern}"}
+            return {"error": f"File not found or expired. Searched patterns: {patterns}"}
         
         file_path = matching_files[0]
         
@@ -208,18 +255,22 @@ def get_file_content(file_id: str):
         if not os.path.exists(file_path):
             return {"error": f"File path does not exist: {file_path}"}
         
-        # Read file content
-        with open(file_path, "rb") as f:
-            file_content = f.read()
-        
-        # Get original extension from found file
-        original_filename = os.path.basename(file_path)
-        file_ext = original_filename.split('.')[-1]
-        
-        return {
-            "content": file_content,
-            "filename": f"upscaled_{file_id}.{file_ext}"
-        }
+        try:
+            # Read file content
+            with open(file_path, "rb") as f:
+                file_content = f.read()
+            
+            # Get original extension from found file
+            original_filename = os.path.basename(file_path)
+            file_ext = original_filename.split('.')[-1]
+            
+            return {
+                "content": file_content,
+                "filename": f"upscaled_{file_id}.{file_ext}"
+            }
+            
+        except Exception as e:
+            return {"error": f"Error reading file {file_path}: {str(e)}"}
         
     except Exception as e:
         return {"error": f"Error reading file: {str(e)}"}

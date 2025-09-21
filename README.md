@@ -113,7 +113,7 @@ Authorization: Bearer your-secret-token-here
 
 ### Upscale Image
 
-**Request:**
+**Request (Base64 Method):**
 ```http
 POST /upscale
 Content-Type: application/json
@@ -121,6 +121,19 @@ Authorization: Bearer <token>
 
 {
   "image": "base64_encoded_image_string",
+  "scale": 4,
+  "output_ext": "png"
+}
+```
+
+**Request (URL Method):**
+```http
+POST /upscale
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "image_url": "https://example.com/image.jpg",
   "scale": 4,
   "output_ext": "png"
 }
@@ -139,7 +152,8 @@ Authorization: Bearer <token>
 ```
 
 **Parameters:**
-- `image`: Base64 encoded image (PNG, JPG, JPEG)
+- `image`: Base64 encoded image (PNG, JPG, JPEG) - **either this or image_url**
+- `image_url`: Public image URL (PNG, JPG, JPEG) - **either this or image**
 - `scale`: Upscaling factor (2 or 4)
 - `output_ext`: Output format - `"png"` or `"jpg"` (optional, default: `"png"`)
 
@@ -148,6 +162,45 @@ Authorization: Bearer <token>
 - `401`: Invalid or missing Bearer token
 - `405`: Wrong HTTP method
 - `500`: Processing error
+
+## Input Methods
+
+### Base64 Method
+```json
+{
+  "image": "base64_encoded_string",
+  "scale": 4
+}
+```
+- **Pros**: Works with any image, no external dependencies
+- **Cons**: Large JSON payload, need to encode first
+- **Best for**: Private images, secure uploads, batch processing
+
+### Image URL Method  
+```json
+{
+  "image_url": "https://example.com/image.jpg",
+  "scale": 4
+}
+```
+- **Pros**: Simple, small JSON payload, no encoding needed
+- **Cons**: Image must be publicly accessible
+- **Best for**: Public images, web scraping, quick testing
+- **Timeout**: 30 seconds for download
+- **User Agent**: Includes proper headers to avoid blocking
+
+### Input Method Examples
+```bash
+# Base64 method (private/local images)
+curl -X POST "https://your-url/upscale" \
+  -H "Authorization: Bearer token" \
+  -d '{"image":"'$(base64 -i local.jpg)'","scale":4}'
+
+# URL method (public images)
+curl -X POST "https://your-url/upscale" \
+  -H "Authorization: Bearer token" \
+  -d '{"image_url":"https://picsum.photos/800/600","scale":4}'
+```
 
 ## Output Formats
 
@@ -304,11 +357,13 @@ curl -X GET "https://your-username--image-upscaler-auth-fastapi-app.modal.run/"
 ```
 
 ### Upscale Image
+
+**Method 1: Base64 Input**
 ```bash
 # First, encode your image to base64
 base64 -i input.jpg > image_base64.txt
 
-# Send upscale request (PNG output - default)
+# Send upscale request
 curl -X POST "https://your-username--image-upscaler-auth-fastapi-app.modal.run/upscale" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secret-token-here" \
@@ -317,13 +372,16 @@ curl -X POST "https://your-username--image-upscaler-auth-fastapi-app.modal.run/u
     "scale": 4,
     "output_ext": "png"
   }'
+```
 
-# Or request JPG output (smaller file size)
+**Method 2: Image URL Input**
+```bash
+# Direct image URL (no encoding needed)
 curl -X POST "https://your-username--image-upscaler-auth-fastapi-app.modal.run/upscale" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secret-token-here" \
   -d '{
-    "image": "'$(cat image_base64.txt)'",
+    "image_url": "https://example.com/image.jpg",
     "scale": 4,
     "output_ext": "jpg"
   }'
