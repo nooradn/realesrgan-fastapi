@@ -213,7 +213,15 @@ modal secret create upscaler-auth --force VALID_TOKENS="your-tokens"
 - Run `python setup_models.py` to pre-cache models
 - Without setup, first request auto-downloads models (slower)
 
-**5. Large image timeouts:**
+**5. CUDA out of memory errors:**
+- Current optimizations: tiling (512px), FP16 precision, auto-resize (max 2048px)
+- For larger images, upgrade GPU in `main.py` line ~85:
+  - `gpu="T4"` (14GB) - Good for 2K images
+  - `gpu="A10G"` (24GB) - Better for 4K images  
+  - `gpu="A100"` (40GB) - Best for 8K+ images
+- Then redeploy: `modal deploy main.py`
+
+**6. Large image timeouts:**
 - Current timeout: 5 minutes
 - For very large images, consider resizing input first
 

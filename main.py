@@ -82,9 +82,10 @@ def setup_models():
     return "Models setup complete"
 
 # Real-ESRGAN processing function (GPU-enabled)
+# For larger images, consider upgrading to gpu="A10G" or gpu="A100"
 @app.function(
     image=gpu_image,
-    gpu="T4",
+    gpu="T4",  # Options: "T4" (14GB), "A10G" (24GB), "A100" (40GB)
     timeout=300,
     memory=8192,
     volumes={"/models": model_volume}
@@ -102,10 +103,22 @@ def process_upscale(image_base64: str, scale: int):
     from basicsr.archs.rrdbnet_arch import RRDBNet
     
     try:
+        # Clear GPU cache at start
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
         # Decode base64 image
         image_data = base64.b64decode(image_base64)
         image = Image.open(io.BytesIO(image_data))
         original_size = list(image.size)
+        
+        # Check image size and resize if too large
+        max_dimension = 2048  # Limit max dimension to prevent OOM
+        if max(original_size) > max_dimension:
+            ratio = max_dimension / max(original_size)
+            new_size = (int(original_size[0] * ratio), int(original_size[1] * ratio))
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+            print(f"⚠️ Image resized from {original_size} to {new_size} to prevent OOM")
         
         # Convert to numpy array
         img_array = np.array(image)
@@ -137,14 +150,15 @@ def process_upscale(image_base64: str, scale: int):
             # Commit to volume for future use
             model_volume.commit()
         
+        # Memory optimization settings
         upsampler = RealESRGANer(
             scale=scale,
             model_path=model_path,
             model=model,
-            tile=0,
+            tile=512,  # Use tiling to reduce memory usage
             tile_pad=10,
             pre_pad=0,
-            half=True if torch.cuda.is_available() else False,
+            half=True if torch.cuda.is_available() else False,  # Use FP16 to save memory
             gpu_id=0 if torch.cuda.is_available() else None
         )
         
@@ -162,6 +176,10 @@ def process_upscale(image_base64: str, scale: int):
         buffer = io.BytesIO()
         result_image.save(buffer, format='PNG')
         result_base64 = base64.b64encode(buffer.getvalue()).decode()
+        
+        # Clear GPU cache after processing
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         
         return {
             "upscaled_image": result_base64,
