@@ -121,28 +121,74 @@ Authorization: Bearer <token>
 
 {
   "image": "base64_encoded_image_string",
-  "scale": 4
+  "scale": 4,
+  "output_ext": "png"
 }
 ```
 
 **Response:**
 ```json
 {
-  "upscaled_image": "base64_encoded_result_string",
+  "download_url": "https://your-url/download/file_id",
+  "file_id": "unique_file_identifier",
   "original_size": [width, height],
-  "upscaled_size": [width, height]
+  "upscaled_size": [width, height],
+  "expires_at": "2024-01-01T13:00:00Z",
+  "output_format": "png"
 }
 ```
 
 **Parameters:**
 - `image`: Base64 encoded image (PNG, JPG, JPEG)
 - `scale`: Upscaling factor (2 or 4)
+- `output_ext`: Output format - `"png"` or `"jpg"` (optional, default: `"png"`)
 
 **Error Responses:**
-- `400`: Invalid input (wrong scale, missing image)
+- `400`: Invalid input (wrong scale, missing image, invalid output format)
 - `401`: Invalid or missing Bearer token
 - `405`: Wrong HTTP method
 - `500`: Processing error
+
+## Output Formats
+
+### PNG (Default)
+```json
+{
+  "output_ext": "png"
+}
+```
+- **Pros**: Lossless quality, supports transparency
+- **Cons**: Larger file size
+- **Best for**: High-quality images, images with transparency
+
+### JPG/JPEG
+```json
+{
+  "output_ext": "jpg"
+}
+```
+- **Pros**: Smaller file size (60-80% smaller than PNG)
+- **Cons**: Lossy compression (95% quality), no transparency
+- **Best for**: Photos, web usage, storage optimization
+- **Note**: RGBA images automatically converted to RGB
+
+### Format Selection Examples
+```bash
+# High quality (larger file)
+curl -X POST "https://your-url/upscale" \
+  -H "Authorization: Bearer token" \
+  -d '{"image":"base64","scale":4,"output_ext":"png"}'
+
+# Optimized size (smaller file)  
+curl -X POST "https://your-url/upscale" \
+  -H "Authorization: Bearer token" \
+  -d '{"image":"base64","scale":4,"output_ext":"jpg"}'
+
+# Default (PNG if not specified)
+curl -X POST "https://your-url/upscale" \
+  -H "Authorization: Bearer token" \
+  -d '{"image":"base64","scale":4}'
+```
 
 ## Files Structure
 
@@ -177,8 +223,8 @@ realesrgan-fastapi/
 
 ### Model Information
 - **Model**: Real-ESRGAN x4plus (4x), x2plus (2x)
-- **Input Formats**: PNG, JPG, JPEG
-- **Output Format**: PNG (base64 encoded)
+- **Input Formats**: PNG, JPG, JPEG (base64 encoded)
+- **Output Formats**: PNG (lossless) or JPG (smaller size, 95% quality)
 - **Max Scale**: 4x upscaling
 - **Model Size**: ~65MB (auto-downloaded)
 
@@ -262,26 +308,42 @@ curl -X GET "https://your-username--image-upscaler-auth-fastapi-app.modal.run/"
 # First, encode your image to base64
 base64 -i input.jpg > image_base64.txt
 
-# Send upscale request
+# Send upscale request (PNG output - default)
 curl -X POST "https://your-username--image-upscaler-auth-fastapi-app.modal.run/upscale" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secret-token-here" \
   -d '{
     "image": "'$(cat image_base64.txt)'",
-    "scale": 4
+    "scale": 4,
+    "output_ext": "png"
+  }'
+
+# Or request JPG output (smaller file size)
+curl -X POST "https://your-username--image-upscaler-auth-fastapi-app.modal.run/upscale" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-secret-token-here" \
+  -d '{
+    "image": "'$(cat image_base64.txt)'",
+    "scale": 4,
+    "output_ext": "jpg"
   }'
 ```
 
 ### Save Upscaled Result
 ```bash
-# Complete workflow: upscale and save result
-curl -X POST "https://your-username--image-upscaler-auth-fastapi-app.modal.run/upscale" \
+# Complete workflow: upscale and download result
+RESPONSE=$(curl -s -X POST "https://your-username--image-upscaler-auth-fastapi-app.modal.run/upscale" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secret-token-here" \
   -d '{
     "image": "'$(base64 -i input.jpg | tr -d '\n')'",
-    "scale": 4
-  }' | jq -r '.upscaled_image' | base64 -d > upscaled_output.png
+    "scale": 4,
+    "output_ext": "jpg"
+  }')
+
+# Extract download URL and download the file
+DOWNLOAD_URL=$(echo $RESPONSE | jq -r '.download_url')
+curl -o upscaled_result.jpg "$DOWNLOAD_URL"
 ```
 
 ### Test Authentication
