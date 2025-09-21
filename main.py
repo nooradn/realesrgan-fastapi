@@ -293,7 +293,8 @@ def fastapi_app():
             # Call the GPU function for processing
             result = process_upscale.remote(upscale_request.image, upscale_request.scale)
             
-            # Generate download URL using request headers
+            # Generate download URL - Modal will handle the routing
+            # The download endpoint is a separate Modal function
             base_url = f"{request.url.scheme}://{request.url.netloc}"
             download_url = f"{base_url}/download/{result['file_id']}"
             
@@ -314,29 +315,22 @@ def fastapi_app():
     @web_app.get("/download/{file_id}")
     async def download_file(file_id: str):
         """Download upscaled image file"""
-        import os
-        import glob
-        from fastapi.responses import FileResponse
+        from fastapi.responses import Response
         
         try:
-            # Find file with this ID (includes timestamp in filename)
-            pattern = f"/temp/{file_id}_*.png"
-            matching_files = glob.glob(pattern)
+            # Call the function that has volume access
+            result = get_file_content.remote(file_id)
             
-            if not matching_files:
-                raise HTTPException(status_code=404, detail="File not found or expired")
+            if "error" in result:
+                raise HTTPException(status_code=404, detail=result["error"])
             
-            file_path = matching_files[0]
-            
-            # Check if file exists
-            if not os.path.exists(file_path):
-                raise HTTPException(status_code=404, detail="File not found or expired")
-            
-            # Return file for download
-            return FileResponse(
-                path=file_path,
-                filename=f"upscaled_{file_id}.png",
-                media_type="image/png"
+            # Return file as response
+            return Response(
+                content=result["content"],
+                media_type="image/png",
+                headers={
+                    "Content-Disposition": f"attachment; filename={result['filename']}"
+                }
             )
             
         except Exception as e:
@@ -379,6 +373,42 @@ def fastapi_app():
         }
     
     return web_app
+
+# Download function with volume access
+@app.function(
+    image=web_image,
+    volumes={"/temp": temp_volume}
+)
+def get_file_content(file_id: str):
+    """Get file content from temp storage"""
+    import os
+    import glob
+    
+    try:
+        # Find file with this ID (includes timestamp in filename)
+        pattern = f"/temp/{file_id}_*.png"
+        matching_files = glob.glob(pattern)
+        
+        if not matching_files:
+            return {"error": f"File not found or expired. Pattern: {pattern}"}
+        
+        file_path = matching_files[0]
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            return {"error": f"File path does not exist: {file_path}"}
+        
+        # Read file content
+        with open(file_path, "rb") as f:
+            file_content = f.read()
+        
+        return {
+            "content": file_content,
+            "filename": f"upscaled_{file_id}.png"
+        }
+        
+    except Exception as e:
+        return {"error": f"Error reading file: {str(e)}"}
 
 # Auto cleanup function - runs every hour to delete expired files
 @app.function(
