@@ -1,6 +1,7 @@
 """
 FastAPI application and endpoints
 """
+import modal
 from .config import app, web_image
 from .upscaler import process_upscale, get_file_content
 

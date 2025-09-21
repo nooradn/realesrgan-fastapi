@@ -1,6 +1,7 @@
 """
 Cleanup functions for temporary files
 """
+import modal
 from core.config import app, web_image, temp_volume
 
 # Auto cleanup function - runs every hour to delete expired files
