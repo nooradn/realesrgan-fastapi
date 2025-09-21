@@ -61,12 +61,21 @@ modal secret create upscaler-auth --force VALID_TOKENS="token1,token2,token3"
 modal deploy main.py
 ```
 
-After deployment, you'll get URL like:
+### 4. Setup Models (Optional - Recommended)
+
+For optimal performance, pre-download models to persistent storage:
+```bash
+python setup_models.py
+```
+
+**Note**: This step is optional. If skipped, models will be automatically downloaded on first use, but with longer initial response time.
+
+After setup, you'll get URL like:
 ```
 https://your-username--image-upscaler-auth-fastapi-app.modal.run
 ```
 
-### 4. Test
+### 5. Test
 
 **Python Client:**
 ```bash
@@ -140,6 +149,7 @@ Authorization: Bearer <token>
 ```
 realesrgan-fastapi/
 ├── main.py              # 🔒 FastAPI app + GPU processor
+├── setup_models.py      # 📥 Model setup script (run once)
 ├── test_client.py       # 🧪 Python test client
 ├── web_example.html     # 🌐 Web interface for testing
 ├── generate_tokens.py   # 🔐 Secure token generator
@@ -166,17 +176,20 @@ realesrgan-fastapi/
 - **Model Size**: ~65MB (auto-downloaded)
 
 ### Performance
-- **Cold Start**: 10-15 seconds (first request, model download)
-- **Warm Requests**: 2-5 seconds per image
+- **Cold Start (with pre-cached models)**: 3-5 seconds
+- **Cold Start (without setup)**: 10-15 seconds (auto-download models)
+- **Warm Requests**: 2-3 seconds per image
 - **GPU**: NVIDIA T4 (8GB VRAM)
 - **Memory**: 8GB allocated
 - **Timeout**: 5 minutes per request
+- **Model Storage**: Persistent Modal Volume with auto-fallback
 
 ### Cost Optimization
 - **FastAPI service**: Always warm, minimal cost
 - **GPU processing**: Only active during image processing
+- **Persistent storage**: Models cached in Modal Volume (no re-download)
 - **Auto-scaling**: Based on request volume
-- **Model caching**: Faster subsequent requests
+- **Fast cold starts**: 3-5 seconds vs 10-15 seconds
 - **Serverless pricing**: Pay per actual usage
 
 ## Troubleshooting
@@ -196,7 +209,11 @@ modal secret create upscaler-auth --force VALID_TOKENS="your-tokens"
 - Verify token in Modal secrets dashboard
 - Check Authorization header format: `Bearer <token>`
 
-**4. Large image timeouts:**
+**4. Slow first request:**
+- Run `python setup_models.py` to pre-cache models
+- Without setup, first request auto-downloads models (slower)
+
+**5. Large image timeouts:**
 - Current timeout: 5 minutes
 - For very large images, consider resizing input first
 

@@ -3,6 +3,9 @@ import modal
 # Modal setup
 app = modal.App("image-upscaler-auth")
 
+# Create persistent volume for model storage
+model_volume = modal.Volume.from_name("realesrgan-models", create_if_missing=True)
+
 # Lightweight image for FastAPI (no GPU dependencies)
 web_image = modal.Image.debian_slim(python_version="3.11").pip_install([
     "fastapi==0.104.1",
@@ -45,17 +48,51 @@ gpu_image = (
     ])
 )
 
+# Model download function (runs once to populate volume)
+@app.function(
+    image=gpu_image,
+    volumes={"/models": model_volume},
+    timeout=600
+)
+def download_models():
+    """Download Real-ESRGAN models to persistent storage"""
+    import os
+    import urllib.request
+    
+    model_dir = "/models"
+    os.makedirs(model_dir, exist_ok=True)
+    
+    models = {
+        "RealESRGAN_x4plus.pth": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+        "RealESRGAN_x2plus.pth": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth"
+    }
+    
+    for model_name, url in models.items():
+        model_path = os.path.join(model_dir, model_name)
+        if not os.path.exists(model_path):
+            print(f"Downloading {model_name}...")
+            urllib.request.urlretrieve(url, model_path)
+            print(f"✅ Downloaded {model_name}")
+        else:
+            print(f"✅ {model_name} already exists")
+    
+    # Commit changes to volume
+    model_volume.commit()
+    print("🎯 All models ready in persistent storage!")
+
 # Real-ESRGAN processing function (GPU-enabled)
 @app.function(
     image=gpu_image,
     gpu="T4",
     timeout=300,
-    memory=8192
+    memory=8192,
+    volumes={"/models": model_volume}
 )
 def process_upscale(image_base64: str, scale: int):
-    """Process image upscaling with Real-ESRGAN on GPU"""
+    """Process image upscaling with Real-ESRGAN on GPU using persistent models"""
     import io
     import base64
+    import os
     import cv2
     import numpy as np
     from PIL import Image
@@ -77,11 +114,27 @@ def process_upscale(image_base64: str, scale: int):
         # Initialize Real-ESRGAN model
         model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=scale)
         
-        # Model path based on scale
+        # Model path with fallback logic
         if scale == 4:
-            model_path = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth'
+            model_name = 'RealESRGAN_x4plus.pth'
+            model_url = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth'
         else:
-            model_path = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth'
+            model_name = 'RealESRGAN_x2plus.pth'
+            model_url = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth'
+        
+        model_path = f'/models/{model_name}'
+        
+        # Check if model exists in persistent storage, if not download it
+        if not os.path.exists(model_path):
+            print(f"⚠️ Model not found in persistent storage, downloading {model_name}...")
+            os.makedirs('/models', exist_ok=True)
+            
+            import urllib.request
+            urllib.request.urlretrieve(model_url, model_path)
+            print(f"✅ Downloaded {model_name} to persistent storage")
+            
+            # Commit to volume for future use
+            model_volume.commit()
         
         upsampler = RealESRGANer(
             scale=scale,
@@ -243,3 +296,9 @@ def fastapi_app():
         }
     
     return web_app
+
+# Setup function to initialize models (run this once after deployment)
+@app.function(image=gpu_image, volumes={"/models": model_volume})
+def setup_models():
+    """Initialize models in persistent storage - run this once after deployment"""
+    return download_models.remote()
