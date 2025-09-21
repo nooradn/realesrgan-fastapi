@@ -48,14 +48,14 @@ gpu_image = (
     ])
 )
 
-# Model download function (runs once to populate volume)
+# Setup models function (runs once to populate volume)
 @app.function(
     image=gpu_image,
     volumes={"/models": model_volume},
     timeout=600
 )
-def download_models():
-    """Download Real-ESRGAN models to persistent storage"""
+def setup_models():
+    """Download Real-ESRGAN models to persistent storage - run this once for optimal performance"""
     import os
     import urllib.request
     
@@ -70,7 +70,7 @@ def download_models():
     for model_name, url in models.items():
         model_path = os.path.join(model_dir, model_name)
         if not os.path.exists(model_path):
-            print(f"Downloading {model_name}...")
+            print(f"📥 Downloading {model_name}...")
             urllib.request.urlretrieve(url, model_path)
             print(f"✅ Downloaded {model_name}")
         else:
@@ -79,6 +79,7 @@ def download_models():
     # Commit changes to volume
     model_volume.commit()
     print("🎯 All models ready in persistent storage!")
+    return "Models setup complete"
 
 # Real-ESRGAN processing function (GPU-enabled)
 @app.function(
@@ -297,8 +298,3 @@ def fastapi_app():
     
     return web_app
 
-# Setup function to initialize models (run this once after deployment)
-@app.function(image=gpu_image, volumes={"/models": model_volume})
-def setup_models():
-    """Initialize models in persistent storage - run this once after deployment"""
-    return download_models.remote()

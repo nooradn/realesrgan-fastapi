@@ -4,21 +4,19 @@ Setup script to download Real-ESRGAN models to Modal persistent storage.
 Run this once after deployment to populate the model cache.
 """
 
-import modal
-
-def setup_models():
+def main():
     """Download models to persistent storage"""
     print("🚀 Setting up Real-ESRGAN models in persistent storage...")
     
-    # Import the app and download function
-    from main import app, download_models
+    # Import the app and setup function
+    from main import app, setup_models
     
-    # Run the download function
+    # Run the setup function
     with app.run():
         print("📥 Downloading models...")
-        download_models.remote()
-        print("✅ Models setup complete!")
+        result = setup_models.remote()
+        print(f"✅ {result}")
         print("🎯 Your upscaler is now optimized for fast warm starts!")
 
 if __name__ == "__main__":
-    setup_models()
+    main()
