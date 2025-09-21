@@ -65,7 +65,7 @@ modal deploy main.py
 
 For optimal performance, pre-download models to persistent storage:
 ```bash
-python setup_models.py
+python scripts/setup_models.py
 ```
 
 **Note**: This step is optional. If skipped, models will be automatically downloaded on first use, but with longer initial response time.
@@ -79,8 +79,8 @@ https://your-username--image-upscaler-auth-fastapi-app.modal.run
 
 **Python Client:**
 ```bash
-# Update endpoint URL and token in test_client.py first
-python test_client.py
+# Update endpoint URL and token in scripts/test_client.py first
+python scripts/test_client.py
 ```
 
 **Web Interface:**
@@ -148,13 +148,22 @@ Authorization: Bearer <token>
 
 ```
 realesrgan-fastapi/
-├── main.py              # 🔒 FastAPI app + GPU processor
-├── setup_models.py      # 📥 Model setup script (run once)
-├── test_client.py       # 🧪 Python test client
-├── web_example.html     # 🌐 Web interface for testing
-├── generate_tokens.py   # 🔐 Secure token generator
-├── requirements.txt     # 📦 Dependencies
-└── README.md           # 📖 This documentation
+├── main.py                    # 🎯 Entry point
+├── core/                      # 🔧 Core components
+│   ├── config.py             # ⚙️ Modal setup & configuration
+│   ├── models.py             # 📝 Pydantic models
+│   ├── auth.py               # 🔐 Authentication logic
+│   ├── upscaler.py           # 🤖 Real-ESRGAN processing
+│   └── api.py                # 🌐 FastAPI endpoints
+├── utils/                     # 🛠️ Utilities
+│   └── cleanup.py            # 🗑️ Auto cleanup functions
+├── scripts/                   # 📜 Setup & testing scripts
+│   ├── setup_models.py       # 📥 Model setup (run once)
+│   ├── generate_tokens.py    # 🔐 Token generator
+│   └── test_client.py        # 🧪 Python test client
+├── web_example.html          # 🌐 Web interface
+├── requirements.txt          # 📦 Dependencies
+└── README.md                # 📖 Documentation
 ```
 
 ## Security Features
@@ -295,10 +304,10 @@ curl -X POST "https://your-username--image-upscaler-auth-fastapi-app.modal.run/u
 ### Local Testing
 ```bash
 # Generate tokens
-python generate_tokens.py
+python scripts/generate_tokens.py
 
 # Update test client with your URL and token
-python test_client.py
+python scripts/test_client.py
 
 # Or use web interface
 open web_example.html

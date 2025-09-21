@@ -9,7 +9,8 @@ def main():
     print("🚀 Setting up Real-ESRGAN models in persistent storage...")
     
     # Import the app and setup function
-    from main import app, setup_models
+    from core.config import app
+    from core.upscaler import setup_models
     
     # Run the setup function
     with app.run():
