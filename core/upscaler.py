@@ -41,7 +41,7 @@ def setup_models():
     image=gpu_image,
     gpu="T4",  # Options: "T4" (14GB), "A10G" (24GB), "A100" (40GB)
     timeout=600,  # Increased timeout for batch processing
-    memory=2048,  # Reduced from 8GB to 2GB (actual usage < 1GB)
+    memory=1024,  # Reduced from 8GB to 1GB (actual usage < 1GB)
     max_containers=10,  # Limit concurrent GPU instances
     volumes={"/models": model_volume, "/temp": temp_volume}
 )
