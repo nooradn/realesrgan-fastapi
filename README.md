@@ -281,22 +281,56 @@ realesrgan-fastapi/
 - **Max Scale**: 4x upscaling
 - **Model Size**: ~65MB (auto-downloaded)
 
-### Performance
+### Performance & Scaling
 - **Cold Start (with pre-cached models)**: 3-5 seconds
 - **Cold Start (without setup)**: 10-15 seconds (auto-download models)
 - **Warm Requests**: 2-3 seconds per image
-- **GPU**: NVIDIA T4 (8GB VRAM)
-- **Memory**: 8GB allocated
-- **Timeout**: 5 minutes per request
+- **Scale-to-Zero**: Automatic when idle (0 cost during inactivity)
+- **Auto-Scaling**: Handles traffic spikes automatically
+- **GPU**: NVIDIA T4 (14GB VRAM available, 2GB RAM allocated)
+- **Timeout**: 10 minutes per request
 - **Model Storage**: Persistent Modal Volume with auto-fallback
+- **Concurrent Requests**: Up to 10 GPU instances (configurable)
 
-### Cost Optimization
-- **FastAPI service**: Always warm, minimal cost
-- **GPU processing**: Only active during image processing
+### Cost Optimization & Auto-Scaling
+- **Scale-to-Zero**: Automatically scales down to zero when idle (no cost when unused)
+- **Auto-Scaling**: Scales up/down based on request volume automatically
+- **FastAPI service**: Lightweight, scales independently from GPU functions
+- **GPU processing**: Only active during image processing, scales to zero when idle
 - **Persistent storage**: Models cached in Modal Volume (no re-download)
-- **Auto-scaling**: Based on request volume
-- **Fast cold starts**: 3-5 seconds vs 10-15 seconds
-- **Serverless pricing**: Pay per actual usage
+- **Cold Start**: 3-5 seconds for warm containers, 10-15 seconds for cold starts
+- **Serverless pricing**: Pay only for actual compute time used
+- **Idle Management**: Containers automatically go idle when not processing requests
+
+**Note**: Modal.com handles all scaling automatically. For detailed scaling behavior and configuration options, refer to the [official Modal documentation](https://modal.com/docs).
+
+## Scaling & Infrastructure
+
+### Auto-Scaling Behavior
+Modal.com provides automatic scaling with the following features:
+
+- **Scale-to-Zero**: When no requests are being processed, containers automatically scale down to zero, resulting in **zero cost during idle periods**
+- **Auto-Scale Up**: Containers automatically spin up when requests arrive
+- **Load Balancing**: Multiple containers can run concurrently to handle traffic spikes
+- **Idle Detection**: Containers go idle after a period of inactivity and are automatically paused
+
+### Cold Start Considerations
+- **First Request**: May take 10-15 seconds if models need to be downloaded
+- **Subsequent Requests**: 3-5 seconds if models are cached in persistent storage
+- **Warm Containers**: 2-3 seconds for active containers
+
+### Scaling Configuration
+Current configuration allows:
+- **Max Containers**: 10 concurrent GPU instances
+- **Memory per Container**: 2GB RAM (optimized for actual usage)
+- **GPU per Container**: NVIDIA T4 (14GB VRAM)
+
+### Cost Implications
+- **Pay-per-Use**: Only charged for actual compute time
+- **No Idle Costs**: Zero cost when scaled to zero
+- **Efficient Resource Usage**: Optimized memory allocation reduces per-request cost
+
+For detailed information about Modal's scaling behavior, container lifecycle, and advanced configuration options, refer to the [official Modal documentation](https://modal.com/docs/guide/lifecycle).
 
 ## Troubleshooting
 
