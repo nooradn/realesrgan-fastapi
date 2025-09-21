@@ -9,7 +9,6 @@ import modal
 from core.config import app
 from core.upscaler import setup_models, process_upscale, get_file_content
 from core.api import fastapi_app
-from utils.cleanup import cleanup_expired_files
 
 # The app is now ready with all functions registered
 # Deploy with: modal deploy main.py

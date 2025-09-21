@@ -252,11 +252,9 @@ realesrgan-fastapi/
 │   ├── config.py             # ⚙️ Modal setup & configuration
 │   ├── upscaler.py           # 🤖 Real-ESRGAN processing
 │   └── api.py                # 🌐 FastAPI app (endpoints, models, auth)
-├── utils/                     # 🛠️ Utilities
-│   └── cleanup.py            # 🗑️ Auto cleanup functions
-├── scripts/                   # 📜 Setup & testing scripts
-│   ├── setup_models.py       # 📥 Model setup (run once)
-│   ├── generate_tokens.py    # 🔐 Token generator
+├── scripts/                   # �  Setup & testing scripts
+│   ├── setup_models.py       # �️ Model setup (run once)
+│   ├── generate_tokens.py    # � Toeken generator
 │   └── test_client.py        # 🧪 Python test client
 ├── web_example.html          # 🌐 Web interface
 ├── requirements.txt          # 📦 Dependencies
@@ -350,8 +348,13 @@ modal secret create upscaler-auth --force VALID_TOKENS="your-tokens"
 - Check Authorization header format: `Bearer <token>`
 
 **4. Slow first request:**
-- Run `python setup_models.py` to pre-cache models
+- Run `python scripts/setup_models.py` to pre-cache models
 - Without setup, first request auto-downloads models (slower)
+
+**5. Storage cleanup:**
+- Files expire after 1 hour but are not automatically deleted
+- Manual cleanup required via Modal dashboard or CLI
+- Monitor storage usage to avoid unexpected costs
 
 **5. CUDA out of memory errors:**
 - Current optimizations: tiling (512px), FP16 precision, auto-resize (max 2048px)
