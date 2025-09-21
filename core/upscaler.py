@@ -155,7 +155,7 @@ def process_upscale(image_base64: str, scale: int, output_ext: str = "png"):
         
         # Save with appropriate quality for JPEG
         if save_format == "JPEG":
-            result_image.save(temp_path, format=save_format, quality=95, optimize=True)
+            result_image.save(temp_path, format=save_format, quality=97, optimize=True)
         else:
             result_image.save(temp_path, format=save_format)
         
