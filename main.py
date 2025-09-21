@@ -6,6 +6,9 @@ app = modal.App("image-upscaler-auth")
 # Create persistent volume for model storage
 model_volume = modal.Volume.from_name("realesrgan-models", create_if_missing=True)
 
+# Create volume for temporary result files (auto-cleanup)
+temp_volume = modal.Volume.from_name("temp-results", create_if_missing=True)
+
 # Lightweight image for FastAPI (no GPU dependencies)
 web_image = modal.Image.debian_slim(python_version="3.11").pip_install([
     "fastapi==0.104.1",
@@ -88,7 +91,7 @@ def setup_models():
     gpu="T4",  # Options: "T4" (14GB), "A10G" (24GB), "A100" (40GB)
     timeout=300,
     memory=8192,
-    volumes={"/models": model_volume}
+    volumes={"/models": model_volume, "/temp": temp_volume}
 )
 def process_upscale(image_base64: str, scale: int):
     """Process image upscaling with Real-ESRGAN on GPU using persistent models"""
@@ -172,19 +175,33 @@ def process_upscale(image_base64: str, scale: int):
         result_image = Image.fromarray(output)
         upscaled_size = list(result_image.size)
         
-        # Convert to base64
-        buffer = io.BytesIO()
-        result_image.save(buffer, format='PNG')
-        result_base64 = base64.b64encode(buffer.getvalue()).decode()
+        # Save to temporary storage with timestamp
+        import uuid
+        import time
+        from datetime import datetime, timedelta
+        
+        file_id = str(uuid.uuid4())
+        timestamp = int(time.time())
+        filename = f"{file_id}_{timestamp}.png"
+        temp_path = f"/temp/{filename}"
+        
+        # Save image to temporary volume
+        result_image.save(temp_path, format='PNG')
+        temp_volume.commit()
+        
+        # Calculate expiry time (1 hour from now)
+        expires_at = datetime.utcnow() + timedelta(hours=1)
         
         # Clear GPU cache after processing
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
         return {
-            "upscaled_image": result_base64,
+            "file_id": file_id,
+            "filename": filename,
             "original_size": original_size,
-            "upscaled_size": upscaled_size
+            "upscaled_size": upscaled_size,
+            "expires_at": expires_at.isoformat() + "Z"
         }
         
     except Exception as e:
@@ -225,9 +242,11 @@ def fastapi_app():
         scale: int = 4  # upscale factor (2 or 4)
 
     class UpscaleResponse(BaseModel):
-        upscaled_image: str  # base64 encoded result
+        download_url: str  # URL to download result
+        file_id: str  # Unique file identifier
         original_size: list
         upscaled_size: list
+        expires_at: str  # ISO timestamp when file expires
     
     # Create FastAPI app with error handling
     web_app = FastAPI(
@@ -257,23 +276,33 @@ def fastapi_app():
         )
     
     @web_app.post("/upscale", response_model=UpscaleResponse)
-    async def upscale_endpoint(request: UpscaleRequest, token: str = Depends(verify_token)):
+    async def upscale_endpoint(
+        upscale_request: UpscaleRequest, 
+        request: Request,
+        token: str = Depends(verify_token)
+    ):
         try:
             # Validate scale parameter
-            if request.scale not in [2, 4]:
+            if upscale_request.scale not in [2, 4]:
                 raise HTTPException(status_code=400, detail="Scale must be 2 or 4")
             
             # Validate base64 image
-            if not request.image:
+            if not upscale_request.image:
                 raise HTTPException(status_code=400, detail="Image data is required")
             
             # Call the GPU function for processing
-            result = process_upscale.remote(request.image, request.scale)
+            result = process_upscale.remote(upscale_request.image, upscale_request.scale)
+            
+            # Generate download URL using request headers
+            base_url = f"{request.url.scheme}://{request.url.netloc}"
+            download_url = f"{base_url}/download/{result['file_id']}"
             
             return UpscaleResponse(
-                upscaled_image=result["upscaled_image"],
+                download_url=download_url,
+                file_id=result["file_id"],
                 original_size=result["original_size"],
-                upscaled_size=result["upscaled_size"]
+                upscaled_size=result["upscaled_size"],
+                expires_at=result["expires_at"]
             )
             
         except HTTPException:
@@ -282,6 +311,37 @@ def fastapi_app():
             raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
     
     # GET to /upscale should return helpful message instead of crashing
+    @web_app.get("/download/{file_id}")
+    async def download_file(file_id: str):
+        """Download upscaled image file"""
+        import os
+        import glob
+        from fastapi.responses import FileResponse
+        
+        try:
+            # Find file with this ID (includes timestamp in filename)
+            pattern = f"/temp/{file_id}_*.png"
+            matching_files = glob.glob(pattern)
+            
+            if not matching_files:
+                raise HTTPException(status_code=404, detail="File not found or expired")
+            
+            file_path = matching_files[0]
+            
+            # Check if file exists
+            if not os.path.exists(file_path):
+                raise HTTPException(status_code=404, detail="File not found or expired")
+            
+            # Return file for download
+            return FileResponse(
+                path=file_path,
+                filename=f"upscaled_{file_id}.png",
+                media_type="image/png"
+            )
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error downloading file: {str(e)}")
+    
     @web_app.get("/upscale")
     async def upscale_get_info():
         return {
@@ -290,6 +350,10 @@ def fastapi_app():
             "required_fields": {
                 "image": "base64 encoded image string",
                 "scale": "2 or 4"
+            },
+            "response_format": {
+                "download_url": "URL to download result image",
+                "expires_at": "File expiry time (1 hour)"
             },
             "authentication": "Bearer token required in Authorization header"
         }
@@ -315,4 +379,49 @@ def fastapi_app():
         }
     
     return web_app
+
+# Auto cleanup function - runs every hour to delete expired files
+@app.function(
+    image=web_image,
+    schedule=modal.Cron("0 * * * *"),  # Every hour at minute 0
+    volumes={"/temp": temp_volume}
+)
+def cleanup_expired_files():
+    """Delete files older than 1 hour"""
+    import os
+    import time
+    import glob
+    
+    current_time = int(time.time())
+    deleted_count = 0
+    
+    # Find all PNG files in temp directory
+    temp_files = glob.glob("/temp/*.png")
+    
+    for file_path in temp_files:
+        try:
+            # Extract timestamp from filename: {uuid}_{timestamp}.png
+            filename = os.path.basename(file_path)
+            if "_" in filename:
+                timestamp_str = filename.split("_")[1].split(".")[0]
+                file_timestamp = int(timestamp_str)
+                
+                # Check if file is older than 1 hour (3600 seconds)
+                if current_time - file_timestamp > 3600:
+                    os.remove(file_path)
+                    deleted_count += 1
+                    print(f"🗑️ Deleted expired file: {filename}")
+                    
+        except (ValueError, IndexError, OSError) as e:
+            print(f"⚠️ Error processing file {file_path}: {e}")
+            continue
+    
+    # Commit changes to volume
+    if deleted_count > 0:
+        temp_volume.commit()
+        print(f"✅ Cleanup complete: {deleted_count} expired files deleted")
+    else:
+        print("✅ Cleanup complete: No expired files found")
+    
+    return f"Deleted {deleted_count} expired files"
 
