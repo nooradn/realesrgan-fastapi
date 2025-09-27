@@ -2,13 +2,14 @@
 FastAPI application and endpoints
 """
 import modal
-from .config import app, web_image
-from .upscaler import process_upscale, get_file_content
+from .config import app, web_image, temp_volume
+from .upscaler import process_upscale
 
 # FastAPI web service (lightweight, no GPU)
 @app.function(
     image=web_image,
-    secrets=[modal.Secret.from_name("upscaler-auth")]
+    secrets=[modal.Secret.from_name("upscaler-auth")],
+    volumes={"/temp": temp_volume}
 )
 @modal.asgi_app()
 def fastapi_app():
@@ -129,32 +130,64 @@ def fastapi_app():
     @web_app.get("/download/{file_id}")
     async def download_file(file_id: str):
         """Download upscaled image file"""
+        import os
+        import glob
+        
         try:
             print(f"🔍 Download request for file_id: {file_id}")
             
-            # Call the function that has volume access
-            result = get_file_content.remote(file_id)
+            # Reload volume to ensure we see latest files
+            temp_volume.reload()
+            print(f"🔄 Volume reloaded for file_id: {file_id}")
             
-            print(f"🔍 get_file_content result: {type(result)}")
+            # List all files in temp directory for debugging
+            all_temp_files = glob.glob("/temp/*")
+            print(f"🔍 All files in /temp: {all_temp_files}")
             
-            if "error" in result:
-                print(f"❌ Error from get_file_content: {result['error']}")
-                raise HTTPException(status_code=404, detail=result["error"])
+            # Find file with this ID (includes timestamp and extension in filename)
+            patterns = [f"/temp/{file_id}_*.png", f"/temp/{file_id}_*.jpg"]
+            matching_files = []
+            for pattern in patterns:
+                files = glob.glob(pattern)
+                matching_files.extend(files)
+                print(f"🔍 Pattern {pattern} found {len(files)} files: {files}")
             
-            if "content" not in result:
-                print(f"❌ No content in result: {result}")
-                raise HTTPException(status_code=500, detail="File content not found in result")
+            print(f"🔍 Total matching files for {file_id}: {matching_files}")
+            
+            if not matching_files:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"File not found or expired. File ID: {file_id}"
+                )
+            
+            file_path = matching_files[0]
+            
+            # Check if file exists
+            if not os.path.exists(file_path):
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"File path does not exist: {file_path}"
+                )
+            
+            # Read file content
+            with open(file_path, "rb") as f:
+                file_content = f.read()
+            
+            # Get original extension from found file
+            original_filename = os.path.basename(file_path)
+            file_ext = original_filename.split('.')[-1]
+            result_filename = f"upscaled_{file_id}.{file_ext}"
             
             # Return file as response with correct media type
-            media_type = "image/jpeg" if result["filename"].endswith(".jpg") else "image/png"
+            media_type = "image/jpeg" if result_filename.endswith(".jpg") else "image/png"
             
-            print(f"✅ Returning file: {result['filename']}, size: {len(result['content'])} bytes")
+            print(f"✅ Returning file: {result_filename}, size: {len(file_content)} bytes")
             
             return Response(
-                content=result["content"],
+                content=file_content,
                 media_type=media_type,
                 headers={
-                    "Content-Disposition": f"attachment; filename={result['filename']}"
+                    "Content-Disposition": f"attachment; filename={result_filename}"
                 }
             )
             
