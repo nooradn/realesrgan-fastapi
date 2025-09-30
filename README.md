@@ -202,6 +202,28 @@ curl -X POST "https://your-url/upscale" \
   -d '{"image_url":"https://picsum.photos/800/600","scale":4}'
 ```
 
+## Transparency Support
+
+### PNG Transparency Preservation
+The upscaler now **fully preserves PNG transparency** (alpha channel):
+
+- **Input**: PNG images with transparency (RGBA mode)
+- **Processing**: Alpha channel is upscaled separately using high-quality interpolation
+- **Output**: PNG with preserved transparency at higher resolution
+- **Quality**: No transparency loss during upscaling process
+
+### Transparency Handling by Format
+- **PNG → PNG**: ✅ Full transparency preservation (RGBA → RGBA)
+- **PNG → JPG**: ⚠️ Transparency converted to white background (RGBA → RGB)
+- **JPG → PNG**: ✅ Opaque image in PNG format (RGB → RGB)
+- **JPG → JPG**: ✅ Standard JPEG processing (RGB → RGB)
+
+### Testing Transparency
+Use the included test script to verify transparency handling:
+```bash
+python scripts/test_transparency.py
+```
+
 ## Output Formats
 
 ### PNG (Default)
@@ -210,9 +232,10 @@ curl -X POST "https://your-url/upscale" \
   "output_ext": "png"
 }
 ```
-- **Pros**: Lossless quality, supports transparency
+- **Pros**: Lossless quality, **full transparency support (RGBA)**
 - **Cons**: Larger file size
-- **Best for**: High-quality images, images with transparency
+- **Best for**: High-quality images, images with transparency, logos, graphics
+- **Transparency**: Preserves alpha channel from input PNG images
 
 ### JPG/JPEG
 ```json
@@ -274,8 +297,9 @@ realesrgan-fastapi/
 
 ### Model Information
 - **Model**: Real-ESRGAN x4plus (4x), x2plus (2x)
-- **Input Formats**: PNG, JPG, JPEG (base64 encoded)
-- **Output Formats**: PNG (lossless) or JPG (smaller size, 95% quality)
+- **Input Formats**: PNG, JPG, JPEG (base64 encoded or URL)
+- **Output Formats**: PNG (lossless, with transparency) or JPG (smaller size, 95% quality)
+- **Transparency Support**: Full RGBA preservation for PNG inputs/outputs
 - **Max Scale**: 4x upscaling
 - **Model Size**: ~65MB (auto-downloaded)
 

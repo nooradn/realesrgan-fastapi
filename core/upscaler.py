@@ -103,10 +103,26 @@ def process_upscale(image_base64: str = None, image_url: str = None, scale: int 
             image = image.resize(new_size, Image.Resampling.LANCZOS)
             print(f"⚠️ Image resized from {original_size} to {new_size} to prevent OOM")
         
-        # Convert to numpy array
-        img_array = np.array(image)
-        if len(img_array.shape) == 3 and img_array.shape[2] == 3:
-            img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+        # Store original mode for transparency preservation
+        original_mode = image.mode
+        has_transparency = original_mode in ('RGBA', 'LA') or 'transparency' in image.info
+        
+        # Convert to numpy array and handle transparency
+        if has_transparency and original_mode == 'RGBA':
+            # Separate RGB and alpha channels
+            img_array = np.array(image)
+            rgb_array = img_array[:, :, :3]
+            alpha_channel = img_array[:, :, 3]
+            
+            # Convert RGB to BGR for processing
+            rgb_array = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
+        else:
+            # Convert image to RGB if needed (handles P, L modes)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            img_array = np.array(image)
+            rgb_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            alpha_channel = None
         
         # Initialize Real-ESRGAN model
         model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=scale)
@@ -145,14 +161,29 @@ def process_upscale(image_base64: str = None, image_url: str = None, scale: int 
             gpu_id=0 if torch.cuda.is_available() else None
         )
         
-        # Upscale image
-        output, _ = upsampler.enhance(img_array, outscale=scale)
+        # Upscale RGB channels
+        output, _ = upsampler.enhance(rgb_array, outscale=scale)
         
-        # Convert back to PIL Image
+        # Upscale alpha channel if present
+        if alpha_channel is not None:
+            # Upscale alpha channel using simple interpolation
+            alpha_upscaled = cv2.resize(
+                alpha_channel, 
+                (output.shape[1], output.shape[0]), 
+                interpolation=cv2.INTER_CUBIC
+            )
+        
+        # Convert back to PIL Image with proper transparency handling
         if len(output.shape) == 3:
             output = cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
         
-        result_image = Image.fromarray(output)
+        # Combine RGB and alpha channels if transparency was present
+        if alpha_channel is not None and output_ext.lower() == "png":
+            # Combine RGB and alpha channels
+            rgba_array = np.dstack((output, alpha_upscaled))
+            result_image = Image.fromarray(rgba_array, mode='RGBA')
+        else:
+            result_image = Image.fromarray(output, mode='RGB')
         upscaled_size = list(result_image.size)
         
         # Save to temporary storage with timestamp
@@ -170,10 +201,14 @@ def process_upscale(image_base64: str = None, image_url: str = None, scale: int 
             save_format = "JPEG"
             # Convert RGBA to RGB for JPEG (no transparency support)
             if result_image.mode == "RGBA":
-                result_image = result_image.convert("RGB")
+                # Create white background for transparency
+                background = Image.new('RGB', result_image.size, (255, 255, 255))
+                background.paste(result_image, mask=result_image.split()[-1])  # Use alpha as mask
+                result_image = background
         else:
             file_ext = "png"
             save_format = "PNG"
+            # Keep RGBA mode for PNG to preserve transparency
         
         filename = f"{file_id}_{timestamp}.{file_ext}"
         temp_path = f"/temp/{filename}"
@@ -181,11 +216,12 @@ def process_upscale(image_base64: str = None, image_url: str = None, scale: int 
         # Thread-safe file saving
         os.makedirs("/temp", exist_ok=True)
         
-        # Save with appropriate quality for JPEG
+        # Save with appropriate settings for each format
         if save_format == "JPEG":
             result_image.save(temp_path, format=save_format, quality=97, optimize=True)
         else:
-            result_image.save(temp_path, format=save_format)
+            # PNG - preserve transparency and use optimal compression
+            result_image.save(temp_path, format=save_format, optimize=True)
         
         # Verify file was saved locally
         if not os.path.exists(temp_path):
